@@ -24,12 +24,12 @@ Configuration File Syntax:
 Below shows the syntax for the config.ini file that can be used for regular or complex extracts. 
 
 [Default]
-Cloud = *Specify ZScaler Cloud*
-Regions = *Specify the regions in the ZScaler Cloud information is requested for, blank will return all regions.*
-Datacenters = *Specify Datacenters information is requested for, blank will return all in the datacenters.*
+- Cloud = *Specify ZScaler Cloud*
+- Regions = *Specify the regions in the ZScaler Cloud information is requested for, blank will return all regions.*
+- Datacenters = *Specify Datacenters information is requested for, blank will return all in the datacenters.*
 
 [Parameters]
-IPType = *Denotes the requested information.*
-Format = *Denotes how the data should be output*
-Path: *Specifies the directory that should be used for CSV export - only applicable for "All" data exports*
+- IPType = *Denotes the requested information.*
+- Format = *Denotes how the data should be output*
+- Path: *Specifies the directory that should be used for CSV export - only applicable for "All" data exports*
 
