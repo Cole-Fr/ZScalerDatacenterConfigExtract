@@ -20,8 +20,10 @@ Required Fields:
 - Datacenters - Identifies the Datacenters to pull the data from. ex 'Atlanta II,Boston I,Abu Dhabi II'
 - Path - Denotes the directory that the CSV from an 'All' data extract will be deposited.
 
+
+
 Configuration File Syntax:
-Below shows the syntax for the config.ini file that can be used for regular or complex extracts. 
+Below shows the syntax for the config.ini file that can be used for regular or complex extracts. See the example config.ini for the proper formatting. 
 
 [Default]
 - Cloud = *Specify ZScaler Cloud*
