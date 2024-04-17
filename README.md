@@ -20,6 +20,14 @@ Required Fields:
 - Datacenters - Identifies the Datacenters to pull the data from. ex 'Atlanta II,Boston I,Abu Dhabi II'
 - Path - Denotes the directory that the CSV from an 'All' data extract will be deposited.
 
+Command-Line Syntax: 
+Details the command-line arguments. 
+-nocfg - defines that the config.ini file should be ignored
+Example: 
+python3 zscalerdcconfigextract.py -nocfg -c 'zscalerthree.net'  -i 'cidr' -o 'simple' -d 'Atlanta II,Boston I,Abu Dhabi II' -r 'Americas,EMEA'
+- Pulls CIDR information for the Atlanta II, Boston I, and Abu Dhabi II datacenters in the Americas and EMEA regions. It simple prints the output in the command-line.
+python3 zscalerdcconfigextract.py -nocfg -c 'zscalerthree.net'  -i 'all' -d 'Atlanta II,Boston I,Abu Dhabi II' -r 'Americas,EMEA' -p 'C:\Users\TestUser\Documents\'
+- Pulls all information for the Atlanta II, Boston I, and Abu Dhabi II datacenters in the Americas and EMEA regions. It formats this information into CSV format and will create a CSV file with the name as the date and time of the system and deposit it in the test users documents folder. 
 
 
 Configuration File Syntax:
