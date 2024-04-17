@@ -22,12 +22,13 @@ Required Fields:
 
 Command-Line Syntax: 
 Details the command-line arguments. 
--nocfg - defines that the config.ini file should be ignored
+ - '-nocfg' - defines that the config.ini file should be ignored
+
 Example: 
-python3 zscalerdcconfigextract.py -nocfg -c 'zscalerthree.net'  -i 'cidr' -o 'simple' -d 'Atlanta II,Boston I,Abu Dhabi II' -r 'Americas,EMEA'
-- Pulls CIDR information for the Atlanta II, Boston I, and Abu Dhabi II datacenters in the Americas and EMEA regions. It simple prints the output in the command-line.
-python3 zscalerdcconfigextract.py -nocfg -c 'zscalerthree.net'  -i 'all' -d 'Atlanta II,Boston I,Abu Dhabi II' -r 'Americas,EMEA' -p 'C:\Users\TestUser\Documents\'
-- Pulls all information for the Atlanta II, Boston I, and Abu Dhabi II datacenters in the Americas and EMEA regions. It formats this information into CSV format and will create a CSV file with the name as the date and time of the system and deposit it in the test users documents folder. 
+- 'python3 zscalerdcconfigextract.py -nocfg -c 'zscalerthree.net'  -i 'cidr' -o 'simple' -d 'Atlanta II,Boston I,Abu Dhabi II' -r 'Americas,EMEA''
+    - Pulls CIDR information for the Atlanta II, Boston I, and Abu Dhabi II datacenters in the Americas and EMEA regions. It simple prints the output in the command-line.
+- 'python3 zscalerdcconfigextract.py -nocfg -c 'zscalerthree.net'  -i 'all' -d 'Atlanta II,Boston I,Abu Dhabi II' -r 'Americas,EMEA' -p 'C:\Users\TestUser\Documents\''
+    - Pulls all information for the Atlanta II, Boston I, and Abu Dhabi II datacenters in the Americas and EMEA regions. It formats this information into CSV format and will create a CSV file with the name as the date and time of the system and deposit it in the test users documents folder. 
 
 
 Configuration File Syntax:
@@ -43,3 +44,7 @@ Below shows the syntax for the config.ini file that can be used for regular or c
 - Format = *Denotes how the data should be output*
 - Path: *Specifies the directory that should be used for CSV export - only applicable for "All" data exports*
 
+
+
+Disclaimer:
+- Information provided is pulled from the JSON source provided on Config.Zscaler.com and not done in affiliation with ZScaler. 
