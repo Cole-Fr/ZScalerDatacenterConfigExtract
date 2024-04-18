@@ -42,7 +42,7 @@ Below shows the syntax for the config.ini file that can be used for regular or c
 [Parameters]
 - IPType = *Denotes the requested information.*
 - Format = *Denotes how the data should be output*
-- Path: *Specifies the directory that should be used for CSV export - only applicable for "All" data exports*
+- Path = *Specifies the directory that should be used for CSV export - only applicable for "All" data exports*
 
 
 
