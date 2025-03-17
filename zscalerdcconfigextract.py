@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+"""
+ZScaler Datacenter Config Extract Tool
+
+This script pulls the configuration for specified ZScaler datacenters.
+Configuration can be done via command-line or provided by a config file named 'config.ini'.
+"""
+
 import requests
 import json
 import ipaddress
@@ -6,256 +14,398 @@ import configparser
 import os
 import csv
 from datetime import datetime
+from typing import Dict, List, Any, Optional, Union
 
-# Defining Functions 
-def ip_range(input):
-    first_usable = input.get('first usable')
-    last_usable = input.get('last usable')
-    usable_range = str(first_usable) + ' - ' + str(last_usable)
-    return usable_range
-def print_values(requested):
-    w = 0
-    requested.sort()
-    while w < len(requested):
-        if 'None' not in requested[w]:
-            print(requested[w])
-        w = w + 1
-def clean_item(input):
-    clean_item = (str(input).split(' : '))[1]
-    return clean_item
-def dir_path(string):
+
+class IPFormatType:
+    """Constants for IP format types"""
+    RANGE = "range"
+    CIDR = "cidr"
+    WILDCARD = "wildcard"
+    ALL = "all"
+
+
+class OutputFormatType:
+    """Constants for output format types"""
+    SIMPLE = "simple"
+    BY_DATACENTER = "bydatacenter"
+    ALL = "all"
+
+
+class ZScalerCloud:
+    """Constants for ZScaler cloud domains"""
+    ZSCALER = "zscaler.net"
+    ZSCALER_ONE = "zscalerone.net"
+    ZSCALER_TWO = "zscalertwo.net"
+    ZSCALER_THREE = "zscalerthree.net"
+    ZSCLOUD = "zscloud.net"
+    ZSCALER_BETA = "zscalerbeta.net"
+    ZSCALER_GOV = "zscalergov.net"
+    ZSCALER_TEN = "zscalerten.net"
+    
+    @classmethod
+    def get_api_url(cls, cloud: str) -> str:
+        """Get the API URL for a given cloud"""
+        return f"https://config.zscaler.com/api/{cloud}/cenr/json"
+
+
+def setup_argparse() -> argparse.ArgumentParser:
+    """Set up and return the argument parser"""
+    parser = argparse.ArgumentParser(
+        prog="ZScaler Datacenter Config Extract Tool",
+        description="This script pulls the configuration for the specified ZScaler datacenters. "
+                    "Configuration can be done in the command-line or provided by a config file named 'config.ini'.",
+        epilog="Although there are many safeguards to stop from the use of bad configs or errors, "
+               "not all situations can be caught. If no output is provided, check the configuration "
+               "and verify its accuracy."
+    )
+    
+    parser.add_argument('-nocfg', '-noconfig', dest='no_config', action='store_true', 
+                      help='Specifies if the present config file should be ignored if one is present.')
+    parser.add_argument('-c', '-cloud', dest='cloud', type=str, 
+                      help='Specifies ZScaler cloud that the data will be pulled for ex. "zscaler.net"')
+    parser.add_argument('-r', '-regions', dest='regions', type=str, 
+                      help='Specifies ZScaler regions, for the specified cloud, that will be used for the data pull. for ex."Americas,EMEA"')
+    parser.add_argument('-d', '-datacenters', dest='datacenters', type=str, 
+                      help='Specifies ZScaler datacenters for the specified cloud, that will be used for the data pull. ex. "Atlanta II,Atlanta III, Boston I"')
+    parser.add_argument('-i', '-ipformat', dest='ipformat', type=str, 
+                      help='Specifies the type of information pulled ex. "range", "cidr", "wildcard" or "all". '
+                           'As a note "all" will print all information into a csv file available for further analysis.')
+    parser.add_argument('-o', '-output_format', dest='output_format', type=str, 
+                      help='Denotes the type of output "simple" will list all data without denoting location. '
+                           '"bydatacenter" will give the data structured with the datacenter city as a label. '
+                           '"All" ipformat will print as a CSV file.')
+    parser.add_argument('-p', '-path', dest='path', type=dir_path, 
+                      help=r'Specifies the directory path that should be used to deposit csv files. *Required for all/csv export*')
+    
+    return parser
+
+
+def dir_path(string: str) -> str:
+    """Validate if the string is a valid directory path"""
     if os.path.isdir(string):
         return string
     else:
         raise NotADirectoryError(string)
 
-# Command Line Options
-parser = argparse.ArgumentParser(
-    prog = "ZScaler Datacenter Config Extract Tool",
-    description = "This script pulls the configuration for the specified ZScaler datacenters. Configuration can be done in the command-line or provided by a config file named 'config.ini'.",
-    epilog = "Although there are many safeguards to stop from the use of bad configs or errors not all situations can be caught. If no output is provided check the configuration and verify its accuracy."
-)
-parser.add_argument('-nocfg', '-noconfig', dest = 'no_config', action = 'store_true', help = 'Specifies if the present config file should be ignored if one is present.')
-parser.add_argument('-c', '-cloud', dest = 'cloud', type = str, help = 'Specifies ZScaler cloud that the data will be pulled for ex. "zscaler.net"')
-parser.add_argument('-r', '-regions', dest = 'regions', type = str, help = 'Specifies ZScaler regions, for the specified cloud, that will be used for the data pull. for ex."Americas,EMEA" ')
-parser.add_argument('-d', '-datacenters', dest = 'datacenters', type = str, help = 'Specifies ZScaler datacenters for the specified cloud, that will be used for the data pull. ex. "Atlanta II,Atlanta III, Boston I"')
-parser.add_argument('-i', '-ipformat', dest = 'ipformat', type = str, help = 'Specifies the type of information pulled ex. "range", "cidr", "wildcard" or "all". As a note "all" will print all information into a csv file available for further analysis.')
-parser.add_argument('-o', '-output_format', dest = 'output_format', type = str, help = 'Denotes the type of output "simple" will list all data without denoting location. "bydatacenter" will give the data structured with the datacenter city as a label. "All" ipformat will print as a CSV file.')
-parser.add_argument('-p', '-path', dest = 'path', type = dir_path, help = r'Specifies the directory path that should be used to deposit csv files.*Required for all/csv export*')
-args = parser.parse_args()
 
-# Variable Requirment Initialization
-if os.path.exists('config.ini') and args.no_config == False:
+def clean_item(input_str: str) -> str:
+    """Extract the value after the colon in a string"""
+    clean_item = (str(input_str).split(' : '))[1]
+    return clean_item
+
+
+def ip_range(input_dict: Dict[str, str]) -> str:
+    """Format IP range as 'first_usable - last_usable'"""
+    first_usable = input_dict.get('first usable', '')
+    last_usable = input_dict.get('last usable', '')
+    usable_range = f"{first_usable} - {last_usable}"
+    return usable_range
+
+
+def print_values(requested: List[str]) -> None:
+    """Print non-None values from a sorted list"""
+    requested.sort()
+    for item in requested:
+        if 'None' not in item:
+            print(item)
+
+
+def read_config(config_file: str = 'config.ini') -> Dict[str, Any]:
+    """Read configuration from config file"""
     config = configparser.ConfigParser()
-    config.read('config.ini')
-    cloud = config['Default']['Cloud']
-    regions = config['Default']['Regions'].split(',')
-    datacenters = config['Default']['Datacenters'].split(',')
-    ipformat = config['Parameters']['IPType']
-    output_format = config['Parameters']['Format']
-    path = config['Parameters']['Path']
-elif args.cloud is None: 
-    exit(print('Config Error: ZScaler Cloud not specified'))
-elif all([args.cloud]) and args.ipformat == 'all' or args.ipformat == 'All' :
-    cloud = args.cloud
-    regions = args.regions
-    datacenters = args.datacenters
-    ipformat = args.ipformat
-    output_format = 'All'
-    path = args.path
-elif all([args.cloud, args.ipformat, args.output_format]):
-    cloud = args.cloud
-    regions = args.regions
-    datacenters = args.datacenters
-    ipformat = args.ipformat
-    output_format = args.output_format
-else:
-    exit(print('Config Error: Incomplete Command-Line arguments or incomplete config file. ** IPFormat or Output Format not defined **- verify config.ini or add parameters run --help for more info'))
+    config.read(config_file)
+    
+    return {
+        'cloud': config['Default']['Cloud'],
+        'regions': config['Default']['Regions'].split(','),
+        'datacenters': config['Default']['Datacenters'].split(','),
+        'ipformat': config['Parameters']['IPType'].lower(),
+        'output_format': config['Parameters']['Format'].lower(),
+        'path': config['Parameters']['Path']
+    }
 
-# Parameter Validation:
-if ipformat == 'all' or ipformat == 'All':
-    if output_format != 'all' and output_format != 'All':
-        exit(print('Config Error: "All" data format only supports CSV export. Define the directory path or file will be created in directory script is run from.'))
 
-# Data pull for respective cloud from config.zscaler.com
-match cloud: 
-    case "zscaler.net": 
-        data = json.loads((requests.get('https://config.zscaler.com/api/zscaler.net/cenr/json')).text)
-    case "zscalerone.net":
-        data = json.loads((requests.get('https://config.zscaler.com/api/zscalerone.net/cenr/json')).text)
-    case "zscalertwo.net": 
-        data = json.loads((requests.get('https://config.zscaler.com/api/zscalertwo.net/cenr/json')).text)
-    case 'zscalerthree.net':
-        data = json.loads((requests.get('https://config.zscaler.com/api/zscalerthree.net/cenr/json')).text)
-    case "zscloud.net": 
-        data = json.loads((requests.get('https://config.zscaler.com/api/zscloud.net/cenr/json')).text)
-    case "zscalerbeta.net":
-        data = json.loads((requests.get('https://config.zscaler.com/api/zscalerbeta.net/cenr/json')).text)
-    case "zscalergov.net": 
-        data = json.loads((requests.get('https://config.zscaler.com/api/zscalergov.net/cenr/json')).text)
-    case "zscalerten.net":
-        data = json.loads((requests.get('https://config.zscaler.com/api/zscalerten.net/cenr/json')).text)
-
-# Removal of regions and datacenters that are not defined. No defenition returns all 
-if any([args.regions, args.datacenters]):
-    remove_region = []
-    for region in data[cloud]:
-        remove_datacenter = []
-        if args.regions is not None:
-            clean_rg = clean_item(region)
-            if clean_rg not in regions:
-                remove_region.append(region)
-        if args.datacenters is not None:
-            for datacenter in data[cloud][region]:
-                clean_dc = clean_item(datacenter)
-                if clean_dc not in datacenters:
-                    remove_datacenter.append(datacenter)
-        for datacenter in remove_datacenter:
-            del data[cloud][region][datacenter]
-    for region in remove_region:
-        del data[cloud][region]
-
-# Sanitize/manipulate data
-for region in data[cloud]:
-    for city in data[cloud][region]:
-        clean_city = clean_item(city)
-        location = data[cloud][region][city]
-        cidr_range = [block.get('range') for block in location] 
-        x = 0
-        for cidr in cidr_range:
-            if cidr != '':
-                check_network = ipaddress.ip_network(cidr)
-                first, last = check_network[1], check_network[-2]
-                location[x]['first usable'] = str(first)
-                location[x]['last usable'] = str(last)
-                if first.version == 4:
-                    wildcard = []
-                    location[x]['wildcard'] = wildcard
-                    first_split = str(first).split('.')
-                    last_split = str(last).split('.')
-                    wildcard.append(first_split[0] + '.' + first_split[1] + '.' + first_split[2]+'.*')
-                    diff = (int(last_split[2]) - int(first_split[2]))
-                    while  diff >= 0 :
-                        new_wild = (first_split[0] + '.' + first_split[1] + '.' + str((int(first_split[2]) + diff)) +'.*')
-                        diff = diff - 1
-                        if new_wild in wildcard or new_wild is None:
-                            continue
-                        else: 
-                            wildcard.append(new_wild)  
-                wildcard.sort()
-            x = x + 1
-
-# All information to CSV
-if (ipformat == 'all' or ipformat == 'All'):
-    if args.path is not None:
-        dir_path(args.path) 
-        filename = args.path + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + '.csv'
+def parse_arguments() -> Dict[str, Any]:
+    """Parse command line arguments and config file"""
+    parser = setup_argparse()
+    args = parser.parse_args()
+    
+    # Initialize configuration
+    config = {}
+    
+    # Check if config file exists and should be used
+    if os.path.exists('config.ini') and not args.no_config:
+        config = read_config()
+    elif args.cloud is None:
+        exit(print('Config Error: ZScaler Cloud not specified'))
+    elif all([args.cloud]) and (args.ipformat and args.ipformat.lower() == IPFormatType.ALL):
+        config = {
+            'cloud': args.cloud,
+            'regions': args.regions.split(',') if args.regions else None,
+            'datacenters': args.datacenters.split(',') if args.datacenters else None,
+            'ipformat': IPFormatType.ALL,
+            'output_format': OutputFormatType.ALL,
+            'path': args.path
+        }
+    elif all([args.cloud, args.ipformat, args.output_format]):
+        config = {
+            'cloud': args.cloud,
+            'regions': args.regions.split(',') if args.regions else None,
+            'datacenters': args.datacenters.split(',') if args.datacenters else None,
+            'ipformat': args.ipformat.lower(),
+            'output_format': args.output_format.lower(),
+            'path': args.path
+        }
     else:
-        filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + '.csv'
-    fieldnames =  ['ZScaler Cloud', 'Region', 'City', 'CIDR', 'VPN', 'GRE', 'Hostname', 'Latitude', 'Longitude', 'First IP', 'Last IP', 'Wildcard']
-    with open(filename, mode ='w', newline='') as csvfile:
-        csvwriter = csv.writer(csvfile, quotechar = "'")
+        exit(print('Config Error: Incomplete Command-Line arguments or incomplete config file. '
+                  '** IPFormat or Output Format not defined ** '
+                  '- verify config.ini or add parameters run --help for more info'))
+    
+    # Parameter Validation:
+    if config['ipformat'] == IPFormatType.ALL and config['output_format'] != OutputFormatType.ALL:
+        exit(print('Config Error: "All" data format only supports CSV export. '
+                  'Define the directory path or file will be created in directory script is run from.'))
+    
+    return config
+
+
+def fetch_zscaler_data(cloud: str) -> Dict[str, Any]:
+    """Fetch data from ZScaler API for the specified cloud"""
+    api_url = ZScalerCloud.get_api_url(cloud)
+    response = requests.get(api_url)
+    return json.loads(response.text)
+
+
+def filter_data(data: Dict[str, Any], cloud: str, regions: Optional[List[str]], 
+                datacenters: Optional[List[str]]) -> Dict[str, Any]:
+    """Filter data by regions and datacenters"""
+    if not any([regions, datacenters]):
+        return data
+    
+    filtered_data = {cloud: {}}
+    
+    for region in data[cloud]:
+        clean_region = clean_item(region)
+        region_data = {}
+        
+        # Skip if regions is specified and current region is not in the list
+        if regions and clean_region not in regions:
+            continue
+        
+        for datacenter in data[cloud][region]:
+            clean_dc = clean_item(datacenter)
+            
+            # Skip if datacenters is specified and current datacenter is not in the list
+            if datacenters and clean_dc not in datacenters:
+                continue
+                
+            region_data[datacenter] = data[cloud][region][datacenter]
+            
+        if region_data:
+            filtered_data[cloud][region] = region_data
+            
+    return filtered_data
+
+
+def process_ip_data(data: Dict[str, Any], cloud: str) -> Dict[str, Any]:
+    """Process IP data to add usable ranges and wildcard masks"""
+    for region in data[cloud]:
+        for city in data[cloud][region]:
+            location = data[cloud][region][city]
+            
+            for i, block in enumerate(location):
+                cidr = block.get('range')
+                if cidr:
+                    # Calculate network information
+                    network = ipaddress.ip_network(cidr)
+                    first, last = network[1], network[-2]
+                    
+                    # Add first and last usable IPs
+                    location[i]['first usable'] = str(first)
+                    location[i]['last usable'] = str(last)
+                    
+                    # Calculate wildcard masks for IPv4
+                    if first.version == 4:
+                        wildcard = []
+                        location[i]['wildcard'] = wildcard
+                        
+                        first_split = str(first).split('.')
+                        last_split = str(last).split('.')
+                        
+                        # Add base wildcard
+                        base_wildcard = f"{first_split[0]}.{first_split[1]}.{first_split[2]}.*"
+                        wildcard.append(base_wildcard)
+                        
+                        # Add additional wildcards if needed
+                        diff = int(last_split[2]) - int(first_split[2])
+                        for j in range(diff, -1, -1):
+                            new_wild = f"{first_split[0]}.{first_split[1]}.{str(int(first_split[2]) + j)}.*"
+                            if new_wild not in wildcard:
+                                wildcard.append(new_wild)
+                                
+                        wildcard.sort()
+                        
+    return data
+
+
+def export_to_csv(data: Dict[str, Any], cloud: str, path: Optional[str] = None) -> str:
+    """Export all data to CSV format"""
+    if path:
+        dir_path(path)
+        filename = os.path.join(path, f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv")
+    else:
+        filename = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+    
+    fieldnames = [
+        'ZScaler Cloud', 'Region', 'City', 'CIDR', 'VPN', 'GRE', 
+        'Hostname', 'Latitude', 'Longitude', 'First IP', 'Last IP', 'Wildcard'
+    ]
+    
+    with open(filename, mode='w', newline='') as csvfile:
+        csvwriter = csv.writer(csvfile, quotechar="'")
         csvwriter.writerow(fieldnames)
+        
         for region in data[cloud]:
             for datacenter in data[cloud][region]:
-                w = 0
-                for item in data[cloud][region][datacenter]:
-                    r = data[cloud][region][datacenter][w]
-                    t = r.get('wildcard')
-                    if t is not None: 
-                        seperator = '-'
-                        wildcard_all = seperator.join(r.get('wildcard'))
-                    new_row = [str(cloud), str(clean_item(region)), str(clean_item(datacenter)), str(r.get('range')), str(r.get('vpn')), str(r.get('gre')), str(r.get('hostname')), str(r.get('latitude')), str(r.get('longitude')), str(r.get('first usable')), str(r.get('last usable')), str(wildcard_all)]
-                    w = w + 1
+                for i, item in enumerate(data[cloud][region][datacenter]):
+                    # Prepare wildcard string if exists
+                    wildcards = item.get('wildcard')
+                    wildcard_str = '-'.join(wildcards) if wildcards else ''
+                    
+                    new_row = [
+                        cloud, 
+                        clean_item(region), 
+                        clean_item(datacenter), 
+                        item.get('range', ''), 
+                        item.get('vpn', ''), 
+                        item.get('gre', ''), 
+                        item.get('hostname', ''), 
+                        item.get('latitude', ''), 
+                        item.get('longitude', ''), 
+                        item.get('first usable', ''), 
+                        item.get('last usable', ''), 
+                        wildcard_str
+                    ]
+                    
                     csvwriter.writerow(new_row)
-    print('CSV file written to: '+ filename)
-# Creating simple output
-elif output_format == 'simple' or output_format == 'Simple':
-    if ipformat == 'wildcard' or ipformat == 'Wildcard':  
+    
+    return filename
+
+
+def output_simple_format(data: Dict[str, Any], cloud: str, ipformat: str) -> None:
+    """Output data in simple format"""
+    if ipformat == IPFormatType.WILDCARD:
         simple_wildcard = []
         for region in data[cloud]:
             for datacenter in data[cloud][region]:
-                possible_items = [part.get(ipformat) for part in data[cloud][region][datacenter]] 
-                w = 0
-                for list in possible_items:
-                    if list is not None:
-                        frst_usable = data[cloud][region][datacenter][w].get('first usable')
-                        if ipaddress.ip_address(frst_usable).version == 4:
-                            for wildcard_ip in list:
+                for i, item in enumerate(data[cloud][region][datacenter]):
+                    wildcards = item.get('wildcard')
+                    if wildcards:
+                        first_usable = item.get('first usable')
+                        if first_usable and ipaddress.ip_address(first_usable).version == 4:
+                            for wildcard_ip in wildcards:
                                 if wildcard_ip not in simple_wildcard:
                                     simple_wildcard.append(wildcard_ip)
-                    w = w + 1
+        
         print_values(simple_wildcard)
-    elif ipformat == 'range' or ipformat == 'Range':  
+        
+    elif ipformat == IPFormatType.RANGE:
         ranges = []
         for region in data[cloud]:
             for datacenter in data[cloud][region]:
-                w = 0
-                while w < len(data[cloud][region][datacenter]):
-                    rnge = ip_range(data[cloud][region][datacenter][w])
-                    if rnge not in ranges:
-                        ranges.append(rnge)
-                    w = w + 1
-        print_values(ranges)   
-    elif ipformat == 'cidr' or ipformat == 'CIDR':
+                for item in data[cloud][region][datacenter]:
+                    range_str = ip_range(item)
+                    if range_str not in ranges:
+                        ranges.append(range_str)
+                        
+        print_values(ranges)
+        
+    elif ipformat == IPFormatType.CIDR:
         cidr_list = []
         for region in data[cloud]:
             for datacenter in data[cloud][region]:
-                w = 0
-                while w < len(data[cloud][region][datacenter]):
-                    cidr = data[cloud][region][datacenter][w].get('range')
-                    if cidr not in cidr_list:
+                for item in data[cloud][region][datacenter]:
+                    cidr = item.get('range')
+                    if cidr and cidr not in cidr_list:
                         cidr_list.append(cidr)
-                    w = w + 1
+                        
         print_values(cidr_list)
 
-# Output by Datacenter
-elif output_format == 'bydatacenter' or output_format == 'ByDatacenter':
-    if ipformat == 'wildcard' or ipformat == 'Wildcard':  
-        for region in data[cloud]:
-            if len(data[cloud][region]) != 0:
-                print(clean_item(region))
-            for datacenter in data[cloud][region]:
-                print(clean_item(datacenter))
+
+def output_by_datacenter(data: Dict[str, Any], cloud: str, ipformat: str) -> None:
+    """Output data organized by datacenter"""
+    for region in data[cloud]:
+        if data[cloud][region]:
+            print(clean_item(region))
+            
+        for datacenter in data[cloud][region]:
+            print(clean_item(datacenter))
+            
+            if ipformat == IPFormatType.WILDCARD:
                 simple_wildcard = []
-                possible_items = [part.get(ipformat) for part in data[cloud][region][datacenter]] 
-                w = 0
-                for list in possible_items:
-                    if list is not None:
-                        frst_usable = data[cloud][region][datacenter][w].get('first usable')
-                        if ipaddress.ip_address(frst_usable).version == 4:
-                            for wildcard_ip in list:
+                for i, item in enumerate(data[cloud][region][datacenter]):
+                    wildcards = item.get('wildcard')
+                    if wildcards:
+                        first_usable = item.get('first usable')
+                        if first_usable and ipaddress.ip_address(first_usable).version == 4:
+                            for wildcard_ip in wildcards:
                                 if wildcard_ip not in simple_wildcard:
                                     simple_wildcard.append(wildcard_ip)
-                    w = w + 1
+                
                 print_values(simple_wildcard)
-    elif ipformat == 'range' or ipformat == 'Range': 
-        for region in data[cloud]:
-            if len(data[cloud][region]) != 0:
-                print(clean_item(region))
-            for datacenter in data[cloud][region]:
-                print(clean_item(datacenter))
+                
+            elif ipformat == IPFormatType.RANGE:
                 ranges = []
-                w = 0
-                while w < len(data[cloud][region][datacenter]):
-                    rnge = ip_range(data[cloud][region][datacenter][w])
-                    if rnge not in ranges:
-                        ranges.append(rnge)
-                    w = w + 1
-                print_values(ranges)   
-    elif ipformat == 'cidr' or ipformat == 'CIDR':
-        for region in data[cloud]:
-            if len(data[cloud][region]) != 0:
-                print(clean_item(region))
-            for datacenter in data[cloud][region]:
-                print(clean_item(datacenter))
+                for item in data[cloud][region][datacenter]:
+                    range_str = ip_range(item)
+                    if range_str not in ranges:
+                        ranges.append(range_str)
+                
+                print_values(ranges)
+                
+            elif ipformat == IPFormatType.CIDR:
                 cidr_list = []
-                w = 0
-                while w < len(data[cloud][region][datacenter]):
-                    cidr = data[cloud][region][datacenter][w].get('range')
-                    if cidr not in cidr_list:
+                for item in data[cloud][region][datacenter]:
+                    cidr = item.get('range')
+                    if cidr and cidr not in cidr_list:
                         cidr_list.append(cidr)
-                    w = w + 1
+                
                 print_values(cidr_list)
-else:
-    exit(print('Configuration Error: IPFormat, Output Format, or Path not specified. ** Path is only applicable if IPFormat and Output Format are "All".**  Run -h for help.'))
+
+
+def main() -> None:
+    """Main function to run the script"""
+    # Parse arguments
+    config = parse_arguments()
+    
+    # Fetch data
+    data = fetch_zscaler_data(config['cloud'])
+    
+    # Filter data
+    data = filter_data(data, config['cloud'], config['regions'], config['datacenters'])
+    
+    # Process IP data
+    data = process_ip_data(data, config['cloud'])
+    
+    # Output data
+    ipformat = config['ipformat']
+    output_format = config['output_format']
+    
+    if ipformat == IPFormatType.ALL:
+        filename = export_to_csv(data, config['cloud'], config['path'])
+        print(f'CSV file written to: {filename}')
+    elif output_format == OutputFormatType.SIMPLE:
+        output_simple_format(data, config['cloud'], ipformat)
+    elif output_format == OutputFormatType.BY_DATACENTER:
+        output_by_datacenter(data, config['cloud'], ipformat)
+    else:
+        exit(print(
+            'Configuration Error: IPFormat, Output Format, or Path not specified. '
+            '** Path is only applicable if IPFormat and Output Format are "All".** '
+            'Run -h for help.'
+        ))
+
+
+if __name__ == "__main__":
+    main()
