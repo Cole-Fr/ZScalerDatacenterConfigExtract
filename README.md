@@ -27,9 +27,12 @@ Details the command-line arguments.
 Example: 
 - 'python3 zscalerdcconfigextract.py -nocfg -c 'zscalerthree.net'  -i 'cidr' -o 'simple' -d 'Atlanta II,Boston I,Abu Dhabi II' -r 'Americas,EMEA''
     - Pulls CIDR information for the Atlanta II, Boston I, and Abu Dhabi II datacenters in the Americas and EMEA regions. It simple prints the output in the command-line.
+      
 - 'python3 zscalerdcconfigextract.py -nocfg -c 'zscalerthree.net'  -i 'all' -d 'Atlanta II,Boston I,Abu Dhabi II' -r 'Americas,EMEA' -p 'C:\Users\TestUser\Documents\''
-    - Pulls all information for the Atlanta II, Boston I, and Abu Dhabi II datacenters in the Americas and EMEA regions. It formats this information into CSV format and will create a CSV file with the name as the date and time of the system and deposit it in the test users documents folder. 
-
+    - Pulls all information for the Atlanta II, Boston I, and Abu Dhabi II datacenters in the Americas and EMEA regions. It formats this information into CSV format and will create a CSV file with the name as the date and time of the system and deposit it in the test users documents folder.
+      
+- 'python3 {file_name}.py -nocfg -c 'zscalerthree.net' -i 'cidr' -o 'simple' -d 'Atlanta II,Atlanta III,Boston I,Chicago,Chicago II,Dallas I,Dallas II,Denver III,Los Angeles,Miami III,New York III,New York IV,San Francisco IV,Seattle,Washington DC, Washington DC IV' -r 'Americas''
+    - Pulls all US based datacenters
 
 Configuration File Syntax:
 Below shows the syntax for the config.ini file that can be used for regular or complex extracts. See the example config.ini for the proper formatting. 
